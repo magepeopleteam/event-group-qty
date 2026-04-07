@@ -14,6 +14,8 @@
 	} // Cannot access pages directly.
 	if ( ! class_exists( 'MEP_Addon_Group_Qty' ) ) {
 		class MEP_Addon_Group_Qty {
+			private const VERSION = '1.0.0';
+
 			public function __construct() {
 				$this->load_plugin();
 			}
@@ -26,6 +28,33 @@
 					define( 'MEP_Addon_Group_Qty_URL', plugins_url() . '/' . plugin_basename( dirname( __FILE__ ) ) );
 				}
 				if ( self::check_plugin() == 1 ) {
+					if ( ! defined( 'MEP_STORE_URL' ) ) {
+						define( 'MEP_STORE_URL', 'https://mage-people.com/' );
+					}
+					if ( ! defined( 'MEP_GROUP_QTY_ID' ) ) {
+						define( 'MEP_GROUP_QTY_ID', 137666 );
+					}
+					if ( ! defined( 'MEP_GROUP_QTY_NAME' ) ) {
+						define( 'MEP_GROUP_QTY_NAME', 'WooCommerce Event Manager Addon: Group Qty' );
+					}
+					if ( ! class_exists( 'EDD_SL_Plugin_Updater' ) ) {
+						require_once MEP_Addon_Group_Qty_DIR . '/license/EDD_SL_Plugin_Updater.php';
+					}
+					require_once MEP_Addon_Group_Qty_DIR . '/license/main.php';
+					$license_key = trim( get_option( 'mep_group_qty_license_key' ) );
+					new EDD_SL_Plugin_Updater(
+						MEP_STORE_URL,
+						__FILE__,
+						array(
+							'version'   => self::VERSION,
+							'license'   => $license_key,
+							'item_name' => MEP_GROUP_QTY_NAME,
+							'item_id'   => MEP_GROUP_QTY_ID,
+							'author'    => 'MagePeople Team',
+							'url'       => home_url(),
+							'beta'      => false,
+						)
+					);
 					require_once MEP_Addon_Group_Qty_DIR . '/inc/MEP_Addon_Group_Qty_Dependencies.php';
 				}
 			}
