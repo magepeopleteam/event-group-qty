@@ -56,9 +56,15 @@
 				$checked = $display == 'off' ? '' : 'checked';
 				if ( $checked == 'checked' ) {
 					$ticket_types = MPWEM_Global_Function::get_post_info( $post_id, 'mep_event_ticket_type', array() );
+					$ticket_types = is_array( $ticket_types ) ? $ticket_types : array();
 					foreach ( $ticket_types as $ticket_type ) {
-						if ( $ticket_type['option_name_t'] == $ticket_type_name ) {
-							$qty = $qty*$ticket_type['group_qty'];
+						if ( ! is_array( $ticket_type ) ) {
+							continue;
+						}
+						$option_name_t = array_key_exists( 'option_name_t', $ticket_type ) ? $ticket_type['option_name_t'] : '';
+						$group_qty     = array_key_exists( 'group_qty', $ticket_type ) ? (int) $ticket_type['group_qty'] : 0;
+						if ( $option_name_t == $ticket_type_name && $group_qty > 1 ) {
+							$qty = $qty * $group_qty;
 						}
 					}
 				}
