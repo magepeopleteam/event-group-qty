@@ -36,83 +36,75 @@ function mep_license_error_code($license_data,$item_name='this Plugin'){
 }
 
 
-add_action('wp_ajax_mep_wl_ajax_license_activate', 'mep_wl_ajax_license_activate');
-// add_action('wp_ajax_nopriv_mep_wl_ajax_license_activate', 'mep_wl_ajax_license_activate');
-if (!function_exists('mep_wl_ajax_license_activate')) {
-function mep_wl_ajax_license_activate(){
+/** Authorize this add-on's license changes independently of other add-ons. */
+function mep_group_qty_license_ajax_guard() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'You are not allowed to manage licenses.', 'mep-addon-group-qty' ), '', array( 'response' => 403 ) );
+    }
+    if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'POST' !== $_SERVER['REQUEST_METHOD'] ) {
+        wp_die( esc_html__( 'Invalid license request.', 'mep-addon-group-qty' ), '', array( 'response' => 405 ) );
+    }
+    $nonce = isset( $_POST['nonce'] ) && is_string( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+    if ( ! wp_verify_nonce( $nonce, 'mep_group_qty_license' ) ) {
+        wp_die( esc_html__( 'Please reload the page and try again.', 'mep-addon-group-qty' ), '', array( 'response' => 403 ) );
+    }
+}
 
-        $nonce                      = sanitize_text_field($_REQUEST['nonce']);
-        $license                    = sanitize_text_field($_REQUEST['key']);
-        $key_option_name            = sanitize_text_field($_REQUEST['key_option_name']);
-        $status_option_name         = sanitize_text_field($_REQUEST['status_option_name']);
-        $expire_option_name         = sanitize_text_field($_REQUEST['expire_option_name']);
-        $order_id_option_name       = sanitize_text_field($_REQUEST['order_id_option_name']);
-        $item_name                  = sanitize_text_field($_REQUEST['item_name']);
-        $item_id                    = sanitize_text_field($_REQUEST['item_id']);
-        $user_type                  = isset($_REQUEST['user_type']) ? sanitize_text_field($_REQUEST['user_type']) : 'new';
-
-
-        $plugin_user_status_type    = $key_option_name.'_type';
-
-        // data to send in our API request
-        $api_params = array(
+add_action( 'wp_ajax_mep_group_qty_license_activate', 'mep_group_qty_license_activate' );
+function mep_group_qty_license_activate() {
+    mep_group_qty_license_ajax_guard();
+    $license = isset( $_POST['key'] ) && is_string( $_POST['key'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['key'] ) ) ) : '';
+    if ( '' === $license || strlen( $license ) > 1024 ) {
+        wp_die( esc_html__( 'Please enter a valid license key.', 'mep-addon-group-qty' ), '', array( 'response' => 400 ) );
+    }
+    $response = wp_remote_post( MEP_STORE_URL, array(
+        'timeout' => 15,
+        'body'    => array(
             'edd_action' => 'activate_license',
             'license'    => $license,
-            'item_id'    => $item_id,
-            'url'        => home_url()
-        );
-
-        // Call the custom API.
-        $response     = wp_remote_post(MEP_STORE_URL, array('timeout' => 15, 'sslverify' => false, 'body' => $api_params));
-        $license_data = json_decode(wp_remote_retrieve_body($response));
-
-        if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
-                $message = (is_wp_error($response) && !empty($response->get_error_message())) ? $response->get_error_message() : __('An error occurred, please try again.');
-        }else{
-        
-            if (false === $license_data->success) {
-                $message    = mep_license_error_code($license_data, $item_name);
-            }else{
-                $payment_id = $license_data->payment_id;
-                $expire = $license_data->expires;
-                $message = __("Success, License Key is valid for the plugin $item_name. Your Order id is $payment_id. Validity of this licenses is $expire.","mage-eventpress");
-            }
+            'item_id'    => MEP_GROUP_QTY_ID,
+            'url'        => home_url(),
+        ),
+    ) );
+    $message = __( 'An error occurred, please try again.', 'mep-addon-group-qty' );
+    if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+        wp_die( esc_html( $message ), '', array( 'response' => 200 ) );
+    }
+    $data = json_decode( wp_remote_retrieve_body( $response ) );
+    // A failed or incomplete response must not erase a previously saved license.
+    if ( ! is_object( $data ) || ! isset( $data->success ) || true !== $data->success ||
+        ! isset( $data->license, $data->expires, $data->payment_id ) || 'valid' !== $data->license ||
+        ! is_string( $data->expires ) || ( ! is_string( $data->payment_id ) && ! is_int( $data->payment_id ) ) ) {
+        if ( is_object( $data ) && isset( $data->error ) && is_string( $data->error ) &&
+            ( ! isset( $data->expires ) || is_string( $data->expires ) ) &&
+            ( 'expired' !== $data->error || isset( $data->expires ) ) ) {
+            $message = mep_license_error_code( $data, MEP_GROUP_QTY_NAME );
         }
-        if($license_data->success){
-            echo $message;
-            update_option($key_option_name, $license);
-            update_option($expire_option_name, $license_data->expires);
-            update_option($order_id_option_name, $license_data->payment_id);            
-            update_option($plugin_user_status_type, $user_type);            
-        }else{
-            update_option($key_option_name, '');
-            update_option($expire_option_name, '');
-            update_option($order_id_option_name, '');  
-        }
-        update_option($status_option_name, $license_data->license);
-die();
-}
-}
-
-add_action('wp_ajax_mep_wl_ajax_license_deactivate', 'mep_wl_ajax_license_deactivate');
-add_action('wp_ajax_nopriv_mep_wl_ajax_license_deactivate', 'mep_wl_ajax_license_deactivate');
-if (!function_exists('mep_wl_ajax_license_deactivate')) {
-function mep_wl_ajax_license_deactivate(){
-        $key_option_name            = sanitize_text_field($_REQUEST['key_option_name']);
-        $status_option_name         = sanitize_text_field($_REQUEST['status_option_name']);
-        $expire_option_name         = sanitize_text_field($_REQUEST['expire_option_name']);
-        $order_id_option_name       = sanitize_text_field($_REQUEST['order_id_option_name']);
-        $item_name                  = sanitize_text_field($_REQUEST['item_name']);
-        $item_id                    = sanitize_text_field($_REQUEST['item_id']);
-
-        update_option($key_option_name, '');
-        update_option($expire_option_name, '');
-        update_option($order_id_option_name, ''); 
-        update_option($status_option_name, 'invalid');
-die();
-}
+        wp_die( esc_html( $message ), '', array( 'response' => 200 ) );
+    }
+    $user_type = isset( $_POST['user_type'] ) && is_string( $_POST['user_type'] ) ? sanitize_key( wp_unslash( $_POST['user_type'] ) ) : 'new';
+    $user_type = in_array( $user_type, array( 'new', 'old' ), true ) ? $user_type : 'new';
+    $expires = sanitize_text_field( (string) $data->expires );
+    $order_id = sanitize_text_field( (string) $data->payment_id );
+    update_option( 'mep_group_qty_license_key', $license );
+    update_option( 'mep_group_qty_license_expire', $expires );
+    update_option( 'mep_group_qty_license_order_id', $order_id );
+    update_option( 'mep_group_qty_license_key_type', $user_type );
+    update_option( 'mep_group_qty_license_status', 'valid' );
+    /* translators: 1: plugin name, 2: order ID, 3: expiry date. */
+    $message = sprintf( __( 'Success, License Key is valid for the plugin %1$s. Your Order id is %2$s. Validity of this license is %3$s.', 'mep-addon-group-qty' ), MEP_GROUP_QTY_NAME, $order_id, $expires );
+    wp_die( esc_html( $message ), '', array( 'response' => 200 ) );
 }
 
+add_action( 'wp_ajax_mep_group_qty_license_deactivate', 'mep_group_qty_license_deactivate' );
+function mep_group_qty_license_deactivate() {
+    mep_group_qty_license_ajax_guard();
+    update_option( 'mep_group_qty_license_key', '' );
+    update_option( 'mep_group_qty_license_expire', '' );
+    update_option( 'mep_group_qty_license_order_id', '' );
+    update_option( 'mep_group_qty_license_status', 'invalid' );
+    wp_die( '', '', array( 'response' => 200 ) );
+}
 
 add_action('mep_license_page_addon_list', 'mep_group_qty_licensing');
 if (!function_exists('mep_group_qty_license_expire_display')) {
@@ -161,7 +153,7 @@ function mep_group_qty_licensing()
             <?php if ($status !== false && $status == 'valid') { ?>
                 <button id='<?php echo $deactive_btn_id; ?>' class='button btn btn-license'><?php _e('Deactive', 'mage-eventpress-wl'); ?></button>
             <?php } else {
-                wp_nonce_field('edd_sample_nonce', 'edd_sample_nonce'); ?>
+                // Each action carries the add-on-specific nonce below. ?>
                 <button id='<?php echo $active_btn_id; ?>' class='button btn btn-license'><?php _e('Active', 'mage-eventpress-wl'); ?></button>
             <?php } ?>
 
@@ -170,20 +162,14 @@ function mep_group_qty_licensing()
                     'use strict';
                     jQuery('#<?php echo $active_btn_id; ?>').on('click', function() {
                         var key = jQuery('#<?php echo $key_option_name; ?>').val();
-                        var nonce = jQuery('#_wpnonce').val();
+                        var nonce = '<?php echo esc_js( wp_create_nonce( 'mep_group_qty_license' ) ); ?>';
                         if (key) {
                             jQuery.ajax({
                                 type: 'POST',
                                 url: ajaxurl,
                                 data: {
-                                    "action"                : "mep_wl_ajax_license_activate",
+                                    "action"                : "mep_group_qty_license_activate",
                                     "nonce"                 : nonce,
-                                    "key_option_name"       : '<?php echo $key_option_name; ?>',
-                                    "status_option_name"    : '<?php echo $status_option_name; ?>',
-                                    "expire_option_name"    : '<?php echo $expire_option_name; ?>',
-                                    "order_id_option_name"  : '<?php echo $order_id_option_name; ?>',
-                                    "item_name"             : '<?php echo MEP_GROUP_QTY_NAME; ?>',
-                                    "item_id"               : '<?php echo MEP_GROUP_QTY_ID; ?>',
                                     "key"                   : key
                                 },
                                 beforeSend: function() {
@@ -206,14 +192,8 @@ function mep_group_qty_licensing()
                                 type: 'POST',
                                 url: ajaxurl,
                                 data: {
-                                    "action"                : "mep_wl_ajax_license_deactivate",
-                                    "key_option_name"       : '<?php echo $key_option_name; ?>',
-                                    "status_option_name"    : '<?php echo $status_option_name; ?>',
-                                    "expire_option_name"    : '<?php echo $expire_option_name; ?>',
-                                    "order_id_option_name"  : '<?php echo $order_id_option_name; ?>',
-                                    "item_name"             : '<?php echo MEP_GROUP_QTY_NAME; ?>',
-                                    "item_id"               : '<?php echo MEP_GROUP_QTY_ID; ?>',
-                                    // "key"                : key
+                                    "action"                : "mep_group_qty_license_deactivate",
+                                    "nonce"                 : '<?php echo esc_js( wp_create_nonce( 'mep_group_qty_license' ) ); ?>',
                                 },
                                 beforeSend: function() {
                                     jQuery('.mep_licensae_info').html('<h5 class=""><?php echo 'Please wait.. License Key is deactivating'; ?></h5>');
